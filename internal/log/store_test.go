@@ -39,7 +39,7 @@ func testAppend(t *testing.T, store *store) {
 	for i := uint64(1); i < 4; i++ {
 		bytes, position, err := store.Append(write)
 		require.NoError(t, err)
-		require.Equal(t, position+bytes, width+1)
+		require.Equal(t, position+bytes, width*i)
 	}
 }
 
