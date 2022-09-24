@@ -9,5 +9,6 @@ const PORT = ":8080"
 
 func main() {
 	httpServer := server.NewHTTPServer(PORT)
+	log.Printf("Start listeing to server....")
 	log.Fatal(httpServer.ListenAndServe())
 }
