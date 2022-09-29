@@ -157,7 +157,7 @@ func (log *Log) LowestOffset() (uint64, error) {
 func (log *Log) HighestOffset() (uint64, error) {
 	log.mu.Lock()
 	defer log.mu.Unlock()
-	return log.HighestOffset()
+	return log.highestOffset()
 }
 
 func (log *Log) highestOffset() (uint64, error) {

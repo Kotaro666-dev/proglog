@@ -67,7 +67,7 @@ func testInitExisting(t *testing.T, log *Log) {
 	appendRecord := &api.Record{
 		Value: []byte("Hello World"),
 	}
-	for i := 3; i < 3; i++ {
+	for i := 0; i < 3; i++ {
 		_, err := log.Append(appendRecord)
 		require.NoError(t, err)
 	}
