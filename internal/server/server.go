@@ -1,0 +1,85 @@
+package server
+
+import (
+	"context"
+	api "github/Kotaro666-dev/prolog/api/v1"
+)
+
+type Config struct {
+	CommitLog CommitLog
+}
+
+type CommitLog interface {
+	Append(*api.Record) (uint64, error)
+	Read(uint64) (*api.Record, error)
+}
+
+var _ api.LogServer = (*grpcServer)(nil)
+
+type grpcServer struct {
+	api.UnimplementedLogServer
+	*Config
+}
+
+func newGrpcServer(config *Config) (srv *grpcServer, err error) {
+	srv = &grpcServer{
+		Config: config,
+	}
+	return srv, nil
+}
+
+func (srv *grpcServer) Produce(ctx context.Context, req *api.ProduceRequest) (*api.ProduceResponse, error) {
+	offset, err := srv.CommitLog.Append(req.Record)
+	if err != nil {
+		return nil, err
+	}
+	return &api.ProduceResponse{Offset: offset}, nil
+}
+
+func (srv *grpcServer) Consume(ctx context.Context, req *api.ConsumeRequest) (*api.ConsumeResponse, error) {
+	record, err := srv.CommitLog.Read(req.Offset)
+	if err != nil {
+		return nil, err
+	}
+	return &api.ConsumeResponse{
+		Record: record,
+	}, nil
+}
+
+func (srv *grpcServer) ProduceStream(stream api.Log_ProduceStreamServer) error {
+	for {
+		req, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+		res, err := srv.Produce(stream.Context(), req)
+		if err != nil {
+			return err
+		}
+		if err = stream.Send(res); err != nil {
+			return err
+		}
+	}
+}
+
+func (srv *grpcServer) ConsumeStream(req *api.ConsumeRequest, stream api.Log_ConsumeStreamServer) error {
+	for {
+		select {
+		case <-stream.Context().Done():
+			return nil
+		default:
+			res, err := srv.Consume(stream.Context(), req)
+			switch err.(type) {
+			case nil:
+			case api.ErrorOffsetOutOfRange:
+				continue
+			default:
+				return err
+			}
+			if err = stream.Send(res); err != nil {
+				return err
+			}
+			req.Offset++
+		}
+	}
+}
