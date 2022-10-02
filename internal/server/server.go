@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	api "github/Kotaro666-dev/prolog/api/v1"
+	"google.golang.org/grpc"
 )
 
 type Config struct {
@@ -26,6 +27,16 @@ func newGrpcServer(config *Config) (srv *grpcServer, err error) {
 		Config: config,
 	}
 	return srv, nil
+}
+
+func NewGrpcServer(config *Config) (*grpc.Server, error) {
+	grpcServer := grpc.NewServer()
+	srv, err := newGrpcServer(config)
+	if err != nil {
+		return nil, err
+	}
+	api.RegisterLogServer(grpcServer, srv)
+	return grpcServer, nil
 }
 
 func (srv *grpcServer) Produce(ctx context.Context, req *api.ProduceRequest) (*api.ProduceResponse, error) {
