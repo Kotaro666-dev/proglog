@@ -1,7 +1,6 @@
 package log
 
 import (
-	"fmt"
 	api "github/Kotaro666-dev/prolog/api/v1"
 	"io"
 	"os"
@@ -114,7 +113,7 @@ func (log *Log) Read(offset uint64) (*api.Record, error) {
 		}
 	}
 	if s == nil || s.nextOffset <= offset {
-		return nil, fmt.Errorf("offset out of range: %d", offset)
+		return nil, api.ErrorOffsetOutOfRange{Offset: offset}
 	}
 	return s.Read(offset)
 }
