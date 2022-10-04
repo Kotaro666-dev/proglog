@@ -4,9 +4,10 @@ import (
 	"context"
 	"github.com/stretchr/testify/require"
 	api "github/Kotaro666-dev/prolog/api/v1"
+	"github/Kotaro666-dev/prolog/internal/config"
 	"github/Kotaro666-dev/prolog/internal/log"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 	"net"
 	"os"
@@ -38,14 +39,31 @@ func setupTest(t *testing.T, fn func(*Config)) (
 	t.Helper()
 
 	/// 指定している0番ポートは、自動的に空きポートを割り当ててくれる
-	listener, err := net.Listen("tcp", ":0")
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	clientOptions := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	}
-	clientConnection, err := grpc.Dial(listener.Addr().String(), clientOptions...)
+	/// 89Pより追記
+	clientTLSConfig, err := config.SetupTLSConfig(config.TLSConfig{
+		CAFile: config.CAFile,
+	})
 	require.NoError(t, err)
+
+	clientCreds := credentials.NewTLS(clientTLSConfig)
+	cc, err := grpc.Dial(
+		listener.Addr().String(),
+		grpc.WithTransportCredentials(clientCreds))
+	require.NoError(t, err)
+	client = api.NewLogClient(cc)
+
+	serverTLSConfig, err := config.SetupTLSConfig(
+		config.TLSConfig{
+			CertFile:      config.ServerCertFile,
+			KeyFile:       config.ServerKeyFile,
+			CAFile:        config.CAFile,
+			ServerAddress: listener.Addr().String(),
+		})
+	require.NoError(t, err)
+	serverCreds := credentials.NewTLS(serverTLSConfig)
 
 	dir, err := os.MkdirTemp("", "server-test")
 	require.NoError(t, err)
@@ -59,7 +77,7 @@ func setupTest(t *testing.T, fn func(*Config)) (
 	if fn != nil {
 		fn(cfg)
 	}
-	server, err := NewGrpcServer(cfg)
+	server, err := NewGrpcServer(cfg, grpc.Creds(serverCreds))
 	require.NoError(t, err)
 
 	go func() {
@@ -69,10 +87,8 @@ func setupTest(t *testing.T, fn func(*Config)) (
 		}
 	}()
 
-	client = api.NewLogClient(clientConnection)
-
 	return client, cfg, func() {
-		err := clientConnection.Close()
+		err := cc.Close()
 		if err != nil {
 			return
 		}

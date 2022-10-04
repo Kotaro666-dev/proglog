@@ -29,8 +29,8 @@ func newGrpcServer(config *Config) (srv *grpcServer, err error) {
 	return srv, nil
 }
 
-func NewGrpcServer(config *Config) (*grpc.Server, error) {
-	grpcServer := grpc.NewServer()
+func NewGrpcServer(config *Config, grpcOptions ...grpc.ServerOption) (*grpc.Server, error) {
+	grpcServer := grpc.NewServer(grpcOptions...)
 	srv, err := newGrpcServer(config)
 	if err != nil {
 		return nil, err
