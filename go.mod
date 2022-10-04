@@ -3,6 +3,7 @@ module github/Kotaro666-dev/prolog
 go 1.13
 
 require (
+	github.com/casbin/casbin/v2 v2.55.1 // indirect
 	github.com/gorilla/mux v1.8.0
 	github.com/stretchr/testify v1.8.0
 	github.com/tysonmote/gommap v0.0.2
