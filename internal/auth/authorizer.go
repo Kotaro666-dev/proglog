@@ -11,6 +11,8 @@ type Authorizer struct {
 	enforcer *casbin.Enforcer
 }
 
+// New / model: Casbinの認可機構を構成するもので、ここではACLを意味している
+/// policy: ACLテーブルを含むCSVファイル
 func New(model, policy string) *Authorizer {
 	enforcer, _ := casbin.NewEnforcer(model, policy)
 	return &Authorizer{
