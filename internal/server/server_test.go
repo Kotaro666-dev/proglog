@@ -17,7 +17,8 @@ import (
 func TestServer(t *testing.T) {
 	for scenario, fn := range map[string]func(
 		t *testing.T,
-		client api.LogClient,
+		rootClient api.LogClient,
+		nobodyClient api.LogClient,
 		config *Config,
 	){
 		"produce/consume a message to/from the log succeeds": testProduceConsume,
@@ -25,15 +26,16 @@ func TestServer(t *testing.T) {
 		"consume past log boundary fails":                    testConsumePastBoundary,
 	} {
 		t.Run(scenario, func(t *testing.T) {
-			client, config, teardown := setupTest(t, nil)
+			rootClient, nobodyClient, config, teardown := setupTest(t, nil)
 			defer teardown()
-			fn(t, client, config)
+			fn(t, rootClient, nobodyClient, config)
 		})
 	}
 }
 
 func setupTest(t *testing.T, fn func(*Config)) (
-	client api.LogClient,
+	rootClient api.LogClient,
+	nobodyClient api.LogClient,
 	cfg *Config,
 	teardown func()) {
 	t.Helper()
@@ -42,20 +44,34 @@ func setupTest(t *testing.T, fn func(*Config)) (
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	/// 89Pより追記
-	clientTLSConfig, err := config.SetupTLSConfig(config.TLSConfig{
-		CertFile: config.ClientCertFile,
-		KeyFile:  config.ClientKeyFile,
-		CAFile:   config.CAFile,
-	})
-	require.NoError(t, err)
+	/// 96Pより追記
+	newClient := func(crtPath, keyPath string) (*grpc.ClientConn, api.LogClient, []grpc.DialOption) {
+		tlsConfig, err := config.SetupTLSConfig(config.TLSConfig{
+			CertFile: crtPath,
+			KeyFile:  keyPath,
+			CAFile:   config.CAFile,
+			Server:   false,
+		})
+		require.NoError(t, err)
+		tlsCreds := credentials.NewTLS(tlsConfig)
+		options := []grpc.DialOption{grpc.WithTransportCredentials(tlsCreds)}
+		conn, err := grpc.Dial(listener.Addr().String(), options...)
+		require.NoError(t, err)
+		client := api.NewLogClient(conn)
+		return conn, client, options
+	}
 
-	clientCreds := credentials.NewTLS(clientTLSConfig)
-	cc, err := grpc.Dial(
-		listener.Addr().String(),
-		grpc.WithTransportCredentials(clientCreds))
-	require.NoError(t, err)
-	client = api.NewLogClient(cc)
+	/// 書き込みと読み出しを許可されたrootというスーパーユーザクライアント
+	var rootConn *grpc.ClientConn
+	rootConn, rootClient, _ = newClient(
+		config.RootClientCertFile,
+		config.RootClientKeyFile)
+
+	/// 何も許可されていないnobodyクライアント
+	var nobodyConn *grpc.ClientConn
+	nobodyConn, nobodyClient, _ = newClient(
+		config.NobodyClientCertFile,
+		config.NobodyClientKeyFile)
 
 	serverTLSConfig, err := config.SetupTLSConfig(
 		config.TLSConfig{
@@ -90,8 +106,12 @@ func setupTest(t *testing.T, fn func(*Config)) (
 		}
 	}()
 
-	return client, cfg, func() {
-		err := cc.Close()
+	return rootClient, nobodyClient, cfg, func() {
+		err := rootConn.Close()
+		if err != nil {
+			return
+		}
+		err = nobodyConn.Close()
 		if err != nil {
 			return
 		}
@@ -100,14 +120,10 @@ func setupTest(t *testing.T, fn func(*Config)) (
 		if err != nil {
 			return
 		}
-		err = clog.Remove()
-		if err != nil {
-			return
-		}
 	}
 }
 
-func testProduceConsume(t *testing.T, client api.LogClient, config *Config) {
+func testProduceConsume(t *testing.T, client, _ api.LogClient, config *Config) {
 	ctx := context.Background()
 
 	want := &api.Record{
@@ -128,7 +144,7 @@ func testProduceConsume(t *testing.T, client api.LogClient, config *Config) {
 }
 
 /// クライアントがログの教会を超えて読み出そうとした場合に発生するエラーテスト
-func testConsumePastBoundary(t *testing.T, client api.LogClient, config *Config) {
+func testConsumePastBoundary(t *testing.T, client, _ api.LogClient, config *Config) {
 	ctx := context.Background()
 
 	produce, err := client.Produce(ctx, &api.ProduceRequest{
@@ -151,7 +167,7 @@ func testConsumePastBoundary(t *testing.T, client api.LogClient, config *Config)
 	}
 }
 
-func testProduceConsumeStream(t *testing.T, client api.LogClient, config *Config) {
+func testProduceConsumeStream(t *testing.T, client, _ api.LogClient, config *Config) {
 	ctx := context.Background()
 
 	records := []*api.Record{{
