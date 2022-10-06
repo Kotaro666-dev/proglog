@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/stretchr/testify/require"
 	api "github/Kotaro666-dev/prolog/api/v1"
+	"github/Kotaro666-dev/prolog/internal/auth"
 	"github/Kotaro666-dev/prolog/internal/config"
 	"github/Kotaro666-dev/prolog/internal/log"
 	"google.golang.org/grpc"
@@ -92,8 +93,10 @@ func setupTest(t *testing.T, fn func(*Config)) (
 	clog, err := log.NewLog(dir, log.Config{})
 	require.NoError(t, err)
 
+	authorizer := auth.New(config.ACLModelFile, config.ACLPolicyFile)
 	cfg = &Config{
-		CommitLog: clog,
+		CommitLog:  clog,
+		Authorizer: authorizer,
 	}
 	if fn != nil {
 		fn(cfg)

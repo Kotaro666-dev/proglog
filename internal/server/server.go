@@ -2,12 +2,31 @@ package server
 
 import (
 	"context"
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	api "github/Kotaro666-dev/prolog/api/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
+
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/peer"
 )
 
 type Config struct {
-	CommitLog CommitLog
+	CommitLog  CommitLog
+	Authorizer Authorizer
+}
+
+/// ACLポリシーテーブルと一致（policy.csvにて定義）
+const (
+	objectWildcard = "*"
+	produceAction  = "produce"
+	consumeAction  = "consume"
+)
+
+type Authorizer interface {
+	Authorize(subject, object, action string) error
 }
 
 type CommitLog interface {
@@ -30,6 +49,14 @@ func newGrpcServer(config *Config) (srv *grpcServer, err error) {
 }
 
 func NewGrpcServer(config *Config, grpcOptions ...grpc.ServerOption) (*grpc.Server, error) {
+	/// authenticateインタセプタをgRPCサーバに組み込み、サーバが各RPCのサブジェクトを識別して認可処理を開始するようにする
+	grpcOptions = append(grpcOptions, grpc.StreamInterceptor(
+		grpc_middleware.ChainStreamServer(
+			grpc_auth.StreamServerInterceptor(authenticate),
+		)),
+		grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
+			grpc_auth.UnaryServerInterceptor(authenticate))))
+
 	grpcServer := grpc.NewServer(grpcOptions...)
 	srv, err := newGrpcServer(config)
 	if err != nil {
@@ -40,6 +67,12 @@ func NewGrpcServer(config *Config, grpcOptions ...grpc.ServerOption) (*grpc.Serv
 }
 
 func (srv *grpcServer) Produce(ctx context.Context, req *api.ProduceRequest) (*api.ProduceResponse, error) {
+	if err := srv.Authorizer.Authorize(
+		subject(ctx),
+		objectWildcard,
+		consumeAction); err != nil {
+		return nil, err
+	}
 	offset, err := srv.CommitLog.Append(req.Record)
 	if err != nil {
 		return nil, err
@@ -48,6 +81,12 @@ func (srv *grpcServer) Produce(ctx context.Context, req *api.ProduceRequest) (*a
 }
 
 func (srv *grpcServer) Consume(ctx context.Context, req *api.ConsumeRequest) (*api.ConsumeResponse, error) {
+	if err := srv.Authorizer.Authorize(
+		subject(ctx),
+		objectWildcard,
+		consumeAction); err != nil {
+		return nil, err
+	}
 	record, err := srv.CommitLog.Read(req.Offset)
 	if err != nil {
 		return nil, err
@@ -93,4 +132,32 @@ func (srv *grpcServer) ConsumeStream(req *api.ConsumeRequest, stream api.Log_Con
 			req.Offset++
 		}
 	}
+}
+
+/// クライアントの証明書からサブジェクトを読み取って、RPCのコンテキストに書き込むインタセプタ
+func authenticate(ctx context.Context) (context.Context, error) {
+	peer, ok := peer.FromContext(ctx)
+	if !ok {
+		return ctx, status.New(
+			codes.Unknown,
+			"couldn't find peer info").Err()
+	}
+
+	if peer.AuthInfo == nil {
+		return context.WithValue(ctx, subjectContextKey{}, ""), nil
+	}
+
+	tlsInfo := peer.AuthInfo.(credentials.TLSInfo)
+	subject := tlsInfo.State.VerifiedChains[0][0].Subject.CommonName
+	ctx = context.WithValue(ctx, subjectContextKey{}, subject)
+
+	return ctx, nil
+}
+
+/// クライアントの証明書のサブジェクトを返却する
+func subject(ctx context.Context) string {
+	return ctx.Value(subjectContextKey{}).(string)
+}
+
+type subjectContextKey struct {
 }
