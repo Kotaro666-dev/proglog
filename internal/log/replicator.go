@@ -105,10 +105,10 @@ func (replicator *Replicator) Leave(name string) error {
 }
 
 func (replicator *Replicator) init() {
-	if replicator.logger != nil {
+	if replicator.logger == nil {
 		replicator.logger = zap.L().Named("replicator")
 	}
-	if replicator.servers != nil {
+	if replicator.servers == nil {
 		replicator.servers = make(map[string]chan struct{})
 	}
 	if replicator.close == nil {
