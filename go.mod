@@ -6,6 +6,7 @@ require (
 	github.com/casbin/casbin/v2 v2.55.1
 	github.com/gorilla/mux v1.8.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
+	github.com/hashicorp/memberlist v0.5.0 // indirect
 	github.com/hashicorp/serf v0.10.1 // indirect
 	github.com/stretchr/testify v1.8.0
 	github.com/tysonmote/gommap v0.0.2
