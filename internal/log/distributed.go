@@ -8,7 +8,6 @@ import (
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 	api "github/Kotaro666-dev/prolog/api/v1"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
 	"io"
 	"net"
 	"os"
@@ -133,7 +132,7 @@ func (dl *DistributedLog) apply(requestType RequestType, req proto.Message) (int
 	if err != nil {
 		return nil, err
 	}
-	b, err := proto.Marshal(requestType)
+	b, err := proto.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
@@ -225,11 +224,6 @@ type fsm struct {
 }
 
 type RequestType uint8
-
-func (r RequestType) ProtoReflect() protoreflect.Message {
-	//TODO implement me
-	panic("implement me")
-}
 
 const (
 	AppendRequestType RequestType = 0
@@ -358,7 +352,7 @@ func (l *logStore) StoreLogs(records []*raft.Log) error {
 	return nil
 }
 
-func (l *logStore) DeleteRange(min, max uint64) error {
+func (l *logStore) DeleteRange(_, max uint64) error {
 	return l.Truncate(max)
 }
 
