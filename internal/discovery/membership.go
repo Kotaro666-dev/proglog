@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"github.com/hashicorp/raft"
 	"github.com/hashicorp/serf/serf"
 	"go.uber.org/zap"
 	"net"
@@ -116,6 +117,13 @@ func (membership *Membership) Leave() error {
 }
 
 func (membership *Membership) logError(err error, message string, member serf.Member) {
+	log := membership.logger.Error
+	if err == raft.ErrNotLeader {
+		log = membership.logger.Debug
+	}
+	log(
+		message,
+		zap.Error(err), zap.String("name", member.Name), zap.String("rpc_address", member.Tags["rpc_address"]))
 	membership.logger.Error(
 		message, zap.Error(err), zap.String("name", member.Name), zap.String("rpc_addr", member.Tags["rpc_addr"]))
 }

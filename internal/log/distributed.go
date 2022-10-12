@@ -160,6 +160,64 @@ func (dl *DistributedLog) Read(offset uint64) (*api.Record, error) {
 	return dl.log.Read(offset)
 }
 
+func (dl *DistributedLog) Join(id, address string) error {
+	configFuture := dl.raft.GetConfiguration()
+	if err := configFuture.Error(); err != nil {
+		return err
+	}
+	serverID := raft.ServerID(id)
+	serverAddress := raft.ServerAddress(address)
+	for _, srv := range configFuture.Configuration().Servers {
+		if srv.ID == serverID || srv.Address == serverAddress {
+			// サーバはすでに参加している
+			return nil
+		}
+		// 既存のサーバを取り除く
+		removeFuture := dl.raft.RemoveServer(serverID, 0, 0)
+		if err := removeFuture.Error(); err != nil {
+			return err
+		}
+	}
+	addFuture := dl.raft.AddVoter(serverID, serverAddress, 0, 0)
+	if err := addFuture.Error(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (dl *DistributedLog) Leave(id string) error {
+	removeFuture := dl.raft.RemoveServer(raft.ServerID(id), 0, 0)
+	return removeFuture.Error()
+}
+
+func (dl *DistributedLog) WaitForLeader(timeout time.Duration) error {
+	timeoutc := time.After(timeout)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeoutc:
+			return fmt.Errorf("timed out")
+		case <-ticker.C:
+			if serverAddress, _ := dl.raft.LeaderWithID(); serverAddress != "" {
+				return nil
+			}
+		}
+	}
+}
+
+func (dl *DistributedLog) Close() error {
+	f := dl.raft.Shutdown()
+	if err := f.Error(); err != nil {
+		return err
+	}
+	if err := dl.raftLog.Log.Close(); err != nil {
+		return err
+	}
+	return dl.log.Close()
+}
+
 var _ raft.FSM = (*fsm)(nil)
 
 type fsm struct {
