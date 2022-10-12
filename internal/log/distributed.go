@@ -2,12 +2,15 @@ package log
 
 import (
 	"bytes"
+	"crypto/tls"
+	"fmt"
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 	api "github/Kotaro666-dev/prolog/api/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -307,4 +310,67 @@ func newLogStore(dir string, config Config) (*logStore, error) {
 		return nil, err
 	}
 	return &logStore{log}, nil
+}
+
+var _ raft.StreamLayer = (*StreamLayer)(nil)
+
+type StreamLayer struct {
+	ln              net.Listener
+	serverTLSConfig *tls.Config
+	peerTLSConfig   *tls.Config
+}
+
+func (s StreamLayer) Accept() (net.Conn, error) {
+	conn, err := s.ln.Accept()
+	if err != nil {
+		return nil, err
+	}
+	b := make([]byte, 1)
+	_, err = conn.Read(b)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal([]byte{byte(RaftRPC)}, b) {
+		return nil, fmt.Errorf("not a raft rpc")
+	}
+	if s.serverTLSConfig != nil {
+		return tls.Server(conn, s.serverTLSConfig), nil
+	}
+	return conn, nil
+}
+
+func (s StreamLayer) Close() error {
+	return s.ln.Close()
+}
+
+func (s StreamLayer) Addr() net.Addr {
+	return s.ln.Addr()
+}
+
+const RaftRPC = 1
+
+// Dial Raftクラスタ内の他のサーバに出ていくコネクションを作るもの
+func (s *StreamLayer) Dial(address raft.ServerAddress, timeout time.Duration) (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: timeout}
+	var conn, err = dialer.Dial("tcp", string(address))
+	if err != nil {
+		return nil, err
+	}
+	// Raft RPC であることを特定する
+	_, err = conn.Write([]byte{byte(RaftRPC)})
+	if err != nil {
+		return nil, err
+	}
+	if s.peerTLSConfig != nil {
+		conn = tls.Client(conn, s.peerTLSConfig)
+	}
+	return conn, nil
+}
+
+func NewStreamLayer(ln net.Listener, serverTLSConfig, peerTLSConfig *tls.Config) *StreamLayer {
+	return &StreamLayer{
+		ln:              ln,
+		serverTLSConfig: serverTLSConfig,
+		peerTLSConfig:   peerTLSConfig,
+	}
 }
