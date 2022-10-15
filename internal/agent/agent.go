@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"crypto/tls"
 	"fmt"
-	api "github/Kotaro666-dev/prolog/api/v1"
+	"github.com/hashicorp/raft"
+	"github.com/soheilhy/cmux"
 	"github/Kotaro666-dev/prolog/internal/auth"
 	"github/Kotaro666-dev/prolog/internal/discovery"
 	"github/Kotaro666-dev/prolog/internal/log"
@@ -11,17 +13,19 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"io"
 	"net"
 	"sync"
+	"time"
 )
 
 type Agent struct {
 	Config
 
-	log        *log.Log
+	mux        cmux.CMux
+	log        *log.DistributedLog
 	server     *grpc.Server
 	membership *discovery.Membership
-	replicator *log.Replicator
 
 	shutdown     bool
 	shutdowns    chan struct{}
@@ -38,6 +42,7 @@ type Config struct {
 	StartJoinAddress []string
 	ACLModelFile     string
 	ACLPolicyFile    string
+	Bootstrap        bool
 }
 
 func (c Config) RPCAddress() (string, error) {
@@ -55,6 +60,7 @@ func New(config Config) (*Agent, error) {
 	}
 	setup := []func() error{
 		agent.setupLogger,
+		agent.setupMux,
 		agent.setupLog,
 		agent.setupServer,
 		agent.setupMembership,
@@ -64,7 +70,23 @@ func New(config Config) (*Agent, error) {
 			return nil, err
 		}
 	}
+	go func() {
+		err := agent.serve()
+		if err != nil {
+			return
+		}
+	}()
 	return agent, nil
+}
+
+func (agent *Agent) setupMux() error {
+	rpcAddress := fmt.Sprintf(":%d", agent.Config.RPCPort)
+	listener, err := net.Listen("tcp", rpcAddress)
+	if err != nil {
+		return err
+	}
+	agent.mux = cmux.New(listener)
+	return nil
 }
 
 func (agent *Agent) setupLogger() error {
@@ -77,10 +99,32 @@ func (agent *Agent) setupLogger() error {
 }
 
 func (agent *Agent) setupLog() error {
+	raftListener := agent.mux.Match(func(reader io.Reader) bool {
+		buffer := make([]byte, 1)
+		if _, err := reader.Read(buffer); err != nil {
+			return false
+		}
+		return bytes.Equal(buffer, []byte{byte(log.RaftRPC)})
+	})
+
+	logConfig := log.Config{}
+	logConfig.Raft.StreamLayer = log.NewStreamLayer(
+		raftListener,
+		agent.Config.ServerTLSConfig,
+		agent.Config.PeerTLSConfig)
+	logConfig.Raft.LocalID = raft.ServerID(agent.Config.NodeName)
+	logConfig.Raft.Bootstrap = agent.Config.Bootstrap
+
 	var err error
-	agent.log, err = log.NewLog(
+	agent.log, err = log.NewDistributedLog(
 		agent.Config.DataDir,
-		log.Config{})
+		logConfig)
+	if err != nil {
+		return err
+	}
+	if agent.Config.Bootstrap {
+		err = agent.log.WaitForLeader(3 * time.Second)
+	}
 	return err
 }
 
@@ -99,17 +143,10 @@ func (agent *Agent) setupServer() error {
 	if err != nil {
 		return err
 	}
-	rpcAddress, err := agent.Config.RPCAddress()
-	if err != nil {
-		return err
-	}
-	listener, err := net.Listen("tcp", rpcAddress)
-	if err != nil {
-		return err
-	}
+	grpcListener := agent.mux.Match(cmux.Any())
 	go func() {
-		if err := agent.server.Serve(listener); err != nil {
-			_ = agent.shutdown
+		if err := agent.server.Serve(grpcListener); err != nil {
+			_ = agent.Shutdown()
 		}
 	}()
 	return err
@@ -120,21 +157,7 @@ func (agent *Agent) setupMembership() error {
 	if err != nil {
 		return err
 	}
-	var options []grpc.DialOption
-	if agent.Config.PeerTLSConfig != nil {
-		options = append(options, grpc.WithTransportCredentials(
-			credentials.NewTLS(agent.Config.PeerTLSConfig)))
-	}
-	clientConn, err := grpc.Dial(rpcAddress, options...)
-	if err != nil {
-		return err
-	}
-	client := api.NewLogClient(clientConn)
-	agent.replicator = &log.Replicator{
-		DialOptions: options,
-		LocalServer: client,
-	}
-	agent.membership, err = discovery.New(agent.replicator, discovery.Config{
+	agent.membership, err = discovery.New(agent.log, discovery.Config{
 		NodeName:    agent.Config.NodeName,
 		BindAddress: agent.Config.BindAddress,
 		Tags: map[string]string{
@@ -157,8 +180,6 @@ func (agent *Agent) Shutdown() error {
 	shutdown := []func() error{
 		/// 他のサーバはこのサーバがクラスタから離脱したことを認識し、このサーバはディスカばりのイベントを受信しなくなる
 		agent.membership.Leave,
-		/// レプリケータを閉じて、複製を続けないようにする
-		agent.replicator.Close,
 		/// 新たなコネクションを受け付けないようにして、保留中のRPCがすべて終了するまで待ちます
 		func() error {
 			agent.server.GracefulStop()
@@ -170,6 +191,14 @@ func (agent *Agent) Shutdown() error {
 		if err := fn(); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (agent *Agent) serve() error {
+	if err := agent.mux.Serve(); err != nil {
+		_ = agent.Shutdown()
+		return err
 	}
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"github/Kotaro666-dev/prolog/internal/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 	"os"
 	"testing"
 	"time"
@@ -60,6 +61,7 @@ func TestAgent(t *testing.T) {
 			StartJoinAddress: startJoinAddress,
 			ACLModelFile:     config.ACLModelFile,
 			ACLPolicyFile:    config.ACLPolicyFile,
+			Bootstrap:        i == 0,
 		})
 		require.NoError(t, err)
 
@@ -102,12 +104,12 @@ func TestAgent(t *testing.T) {
 
 	/// leaderClientから複製されたfollowerClientのをもとに、再びデータが複製されてしまっているために発生するFaildケース
 	/// 8章以降で、フォロワーだけがリーダーを複製するように設定していく
-	//consumeResponse, err = leaderClient.Consume(context.Background(), &api.ConsumeRequest{Offset: produceResponse.Offset + 1})
-	//require.Nil(t, consumeResponse)
-	//require.Error(t, err)
-	//got := status.Code(err)
-	//want := status.Code(api.ErrorOffsetOutOfRange{}.GRPCStatus().Err())
-	//require.Equal(t, got, want)
+	consumeResponse, err = leaderClient.Consume(context.Background(), &api.ConsumeRequest{Offset: produceResponse.Offset + 1})
+	require.Nil(t, consumeResponse)
+	require.Error(t, err)
+	got := status.Code(err)
+	want := status.Code(api.ErrorOffsetOutOfRange{}.GRPCStatus().Err())
+	require.Equal(t, got, want)
 }
 
 func client(t *testing.T, agent *Agent, tlsConfig *tls.Config) api.LogClient {

@@ -9,6 +9,7 @@ require (
 	github.com/hashicorp/raft v1.3.11
 	github.com/hashicorp/raft-boltdb v0.0.0-00010101000000-000000000000
 	github.com/hashicorp/serf v0.10.1
+	github.com/soheilhy/cmux v0.1.5
 	github.com/stretchr/testify v1.8.0
 	github.com/travisjeffery/go-dynaport v1.0.0
 	github.com/tysonmote/gommap v0.0.2
