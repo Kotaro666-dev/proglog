@@ -22,8 +22,9 @@ import (
 )
 
 type Config struct {
-	CommitLog  CommitLog
-	Authorizer Authorizer
+	CommitLog   CommitLog
+	Authorizer  Authorizer
+	GetServerer GetServerer
 }
 
 /// ACLポリシーテーブルと一致（policy.csvにて定義）
@@ -168,6 +169,18 @@ func (srv *grpcServer) ConsumeStream(req *api.ConsumeRequest, stream api.Log_Con
 			req.Offset++
 		}
 	}
+}
+
+func (srv *grpcServer) GetServers(ctx context.Context, req *api.GetServersRequest) (*api.GetServersResponse, error) {
+	servers, err := srv.GetServerer.GetServers()
+	if err != nil {
+		return nil, err
+	}
+	return &api.GetServersResponse{Servers: servers}, nil
+}
+
+type GetServerer interface {
+	GetServers() ([]*api.Server, error)
 }
 
 /// クライアントの証明書からサブジェクトを読み取って、RPCのコンテキストに書き込むインタセプタ
