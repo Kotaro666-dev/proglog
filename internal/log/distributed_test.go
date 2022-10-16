@@ -85,9 +85,22 @@ func TestMultipleNodes(t *testing.T) {
 		}, 500*time.Millisecond, 50*time.Millisecond)
 	}
 
-	// リーダーがクラスタから離脱したサーバへのレプリケーションを停止し、既存のサーバへのレプリケーションは継続していることをテストする
-	err := logs[0].Leave("1")
+	servers, err := logs[0].GetServers()
 	require.NoError(t, err)
+	require.Equal(t, 3, len(servers))
+	require.True(t, servers[0].IsLeader)
+	require.False(t, servers[1].IsLeader)
+	require.False(t, servers[2].IsLeader)
+
+	// リーダーがクラスタから離脱したサーバへのレプリケーションを停止し、既存のサーバへのレプリケーションは継続していることをテストする
+	err = logs[0].Leave("1")
+	require.NoError(t, err)
+
+	servers, err = logs[0].GetServers()
+	require.NoError(t, err)
+	require.Equal(t, 2, len(servers))
+	require.True(t, servers[0].IsLeader)
+	require.False(t, servers[1].IsLeader)
 
 	// 書籍よりも長めにスリープにした。
 	// この時間が短いと、リーダーからフォロワーへのレプリケーションが完了しておらずにテストで失敗する
