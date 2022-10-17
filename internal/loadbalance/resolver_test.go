@@ -5,6 +5,8 @@ import (
 	api "github/Kotaro666-dev/prolog/api/v1"
 	"github/Kotaro666-dev/prolog/internal/config"
 	"github/Kotaro666-dev/prolog/internal/loadbalance"
+	"github/Kotaro666-dev/prolog/internal/server"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/resolver"
@@ -17,8 +19,25 @@ func TestResolver(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	conn := &clientConn{}
 	tlsConfig, err := config.SetupTLSConfig(config.TLSConfig{
+		CertFile:      config.ServerCertFile,
+		KeyFile:       config.ServerKeyFile,
+		CAFile:        config.CAFile,
+		Server:        true,
+		ServerAddress: "127.0.0.1",
+	})
+	require.NoError(t, err)
+	serverCreds := credentials.NewTLS(tlsConfig)
+
+	srv, err := server.NewGrpcServer(&server.Config{
+		GetServerer: &getServers{},
+	}, grpc.Creds(serverCreds))
+	require.NoError(t, err)
+
+	go srv.Serve(listener)
+
+	conn := &clientConn{}
+	tlsConfig, err = config.SetupTLSConfig(config.TLSConfig{
 		CertFile:      config.RootClientCertFile,
 		KeyFile:       config.RootClientKeyFile,
 		CAFile:        config.CAFile,
@@ -27,7 +46,7 @@ func TestResolver(t *testing.T) {
 	})
 	require.NoError(t, err)
 	clientCreds := credentials.NewTLS(tlsConfig)
-	options := resolver.BuildOptions{
+	opts := resolver.BuildOptions{
 		DialCreds: clientCreds,
 	}
 	r := &loadbalance.Resolver{}
@@ -36,7 +55,8 @@ func TestResolver(t *testing.T) {
 			Endpoint: listener.Addr().String(),
 		},
 		conn,
-		options)
+		opts,
+	)
 	require.NoError(t, err)
 
 	wantState := resolver.State{
