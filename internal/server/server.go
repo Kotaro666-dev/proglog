@@ -14,6 +14,8 @@ import (
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 	"time"
 
@@ -95,6 +97,11 @@ func NewGrpcServer(config *Config, grpcOptions ...grpc.ServerOption) (*grpc.Serv
 		grpc.StatsHandler(&ocgrpc.ServerHandler{}))
 
 	grpcServer := grpc.NewServer(grpcOptions...)
+
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	healthpb.RegisterHealthServer(grpcServer, healthServer)
+
 	srv, err := newGrpcServer(config)
 	if err != nil {
 		return nil, err
