@@ -40,6 +40,7 @@ func TestMultipleNodes(t *testing.T) {
 		config.Raft.ElectionTimeout = 300 * time.Millisecond
 		config.Raft.LeaderLeaseTimeout = 300 * time.Millisecond
 		config.Raft.CommitTimeout = 50 * time.Millisecond
+		config.Raft.BindAddress = ln.Addr().String()
 
 		if i == 0 {
 			// クラスタをブートストラップしてリーダになる

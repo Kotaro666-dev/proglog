@@ -110,7 +110,7 @@ func (dl *DistributedLog) setupRaft(dataDir string) error {
 	}
 	if dl.config.Raft.Bootstrap && !hasState {
 		config := raft.Configuration{Servers: []raft.Server{
-			{ID: config.LocalID, Address: transport.LocalAddr()}}}
+			{ID: config.LocalID, Address: raft.ServerAddress(dl.config.Raft.BindAddress)}}}
 		err = dl.raft.BootstrapCluster(config).Error()
 	}
 	return nil
