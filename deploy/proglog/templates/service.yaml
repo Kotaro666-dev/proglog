@@ -3,7 +3,7 @@ kind: Service
 metadata:
   name: {{ include "proglog.fullname" . }}
   namespace: {{ .Release.Namespace }}
-  labels: {{ include "proglog.lables" . | nindent 4 }}
+  labels: {{ include "proglog.labels" . | nindent 4 }}
 spec:
   clusterIP: None
   publishNotReadyAddresses: true
